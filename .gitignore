@@ -1,0 +1,22 @@
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Logs
+trimui_uploader_*.log
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
