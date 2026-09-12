@@ -91,6 +91,7 @@ class TrimUIUploader:
         style = ttk.Style()
         style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
 
+        # --- Блок подключения ---
         conn_frame = ttk.LabelFrame(self.root, text="Подключение к консоли", padding=10)
         conn_frame.pack(fill="x", padx=10, pady=(10, 5))
 
@@ -110,10 +111,13 @@ class TrimUIUploader:
         ttk.Checkbutton(conn_frame, text="Запомнить", variable=self.save_pass_var).grid(row=1, column=2, columnspan=2, sticky="w", padx=5)
 
 
+        # --- Блок назначения (Куда заливать) ---
         dest_frame = ttk.LabelFrame(self.root, text="Куда заливать", padding=10)
         dest_frame.pack(fill="x", padx=10, pady=5)
 
+        # Строка 0: Система, Путь, Кнопка поиска
         ttk.Label(dest_frame, text="Система:").grid(row=0, column=0, sticky="w", pady=2)
+        
         self.system_var = tk.StringVar(value=self.config.get("system", "PORTS"))
         self.system_combo = ttk.Combobox(dest_frame, textvariable=self.system_var, values=list(SYSTEM_PATHS.keys()), width=15, state="readonly")
         self.system_combo.grid(row=0, column=1, sticky="w", padx=5, pady=2)
@@ -121,12 +125,13 @@ class TrimUIUploader:
 
         ttk.Label(dest_frame, text="Путь:").grid(row=0, column=2, sticky="w", pady=2)
         self.path_var = tk.StringVar(value=SYSTEM_PATHS.get(self.system_var.get(), ""))
-        ttk.Entry(dest_frame, textvariable=self.path_var, width=45).grid(row=0, column=3, sticky="we", padx=5, pady=2)
+        path_entry = ttk.Entry(dest_frame, textvariable=self.path_var, width=45)
+        path_entry.grid(row=0, column=3, sticky="we", padx=5, pady=2)
         dest_frame.columnconfigure(3, weight=1)
 
         ttk.Button(dest_frame, text="🔍 Найти путь", command=self.detect_path).grid(row=0, column=4, sticky="w", padx=5, pady=2)
 
-        # Подпапка
+        # Строка 1: Подпапка (будет скрыта, если не PORTS)
         self.subfolder_label = ttk.Label(dest_frame, text="Подпапка:")
         self.subfolder_label.grid(row=1, column=0, sticky="w", pady=2)
 
@@ -134,6 +139,7 @@ class TrimUIUploader:
         self.subfolder_entry = ttk.Entry(dest_frame, textvariable=self.subfolder_var, width=45)
         self.subfolder_entry.grid(row=1, column=1, columnspan=4, sticky="we", padx=5, pady=2)
 
+        # Строка 2: Подсказка для подпапки
         self.subfolder_hint = ttk.Label(
             dest_frame,
             text="(имя игры — для PortMaster: будет папка Data/ports/<имя>)",
@@ -141,12 +147,25 @@ class TrimUIUploader:
         )
         self.subfolder_hint.grid(row=2, column=0, columnspan=5, sticky="w")
 
-        # Поля для сохранения Custom-системы (видны только при выборе Custom)
+        # Строка 3: Поля для Custom (создаем и СРАЗУ скрываем через grid_remove)
         self.custom_name_label = ttk.Label(dest_frame, text="Имя системы:")
         self.custom_name_var = tk.StringVar(value="")
         self.custom_name_entry = ttk.Entry(dest_frame, textvariable=self.custom_name_var, width=15)
         self.save_system_btn = ttk.Button(dest_frame, text="💾 Сохранить", command=self.save_custom_system)
 
+        # ВАЖНО: Сразу размещаем в сетке и скрываем. 
+        # Это фиксирует строки/столбцы, чтобы интерфейс не "прыгал" позже.
+        self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
+        self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        self.save_system_btn.grid(row=3, column=2, sticky="w", pady=2)
+        
+        # Скрываем сразу, логика показа будет в on_system_change
+        self.custom_name_label.grid_remove()
+        self.custom_name_entry.grid_remove()
+        self.save_system_btn.grid_remove()
+
+
+        # --- Блок файлов игры ---
         game_frame = ttk.LabelFrame(self.root, text="Файлы игры", padding=10)
         game_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -162,6 +181,7 @@ class TrimUIUploader:
         game_scroll.pack(side="right", fill="y")
         self.game_listbox.configure(yscrollcommand=game_scroll.set)
 
+        # --- Блок картинок ---
         img_frame = ttk.LabelFrame(self.root, text="Картинки (обложки/скриншоты)", padding=10)
         img_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
@@ -176,48 +196,65 @@ class TrimUIUploader:
         img_scroll.pack(side="right", fill="y")
         self.img_listbox.configure(yscrollcommand=img_scroll.set)
 
+        # --- Панель действий ---
         action_frame = ttk.Frame(self.root)
         action_frame.pack(fill="x", padx=10, pady=(5, 5))
+        
         self.transfer_btn = ttk.Button(action_frame, text="Залить на консоль", command=self.start_transfer)
         self.transfer_btn.pack(side="left", padx=(0, 10))
+        
         ttk.Button(action_frame, text="Проверить соединение", command=self.test_connection).pack(side="left")
+        
         self.progress = ttk.Progressbar(action_frame, mode="determinate")
         self.progress.pack(side="right", fill="x", expand=True, padx=(10, 0))
 
         self.status_label = ttk.Label(self.root, text="Готово к работе", font=("Segoe UI", 9))
         self.status_label.pack(fill="x", padx=10, pady=(0, 5))
 
-
+        # --- Лог ---
         log_frame = ttk.LabelFrame(self.root, text="Лог", padding=5)
         log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        
         self.log_text = tk.Text(log_frame, height=6, state="disabled", font=("Consolas", 9))
         self.log_text.pack(side="left", fill="both", expand=True)
+        
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
         log_scroll.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=log_scroll.set)
+        
         self.copy_btn = ttk.Button(action_frame, text="📋 Скопировать логи", command=self.copy_logs)
         self.copy_btn.pack(side="right", padx=5)
 
-        # Скрываем/показываем поля в зависимости от выбранной системы
+        # Инициализация видимости виджетов при старте
         self.on_system_change()
+
+
 
 
     def on_system_change(self, event=None):
         system = self.system_var.get()
 
-        if system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
+        # Логика установки пути
+        if system == "Custom":
+            # Для Custom путь очищаем, пользователь должен ввести его сам
+            self.path_var.set("")
+        elif system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
+            # Для остальных систем берем из словаря
             self.path_var.set(SYSTEM_PATHS[system])
 
+        # --- Логика для подпапки (только PORTS) ---
         if system == "PORTS":
             self.subfolder_label.grid()
             self.subfolder_entry.grid()
             self.subfolder_hint.grid()
         else:
+            # Используем grid_remove(), а не grid_forget(), чтобы сохранить позиции в сетке
             self.subfolder_label.grid_remove()
             self.subfolder_entry.grid_remove()
             self.subfolder_hint.grid_remove()
-            self.subfolder_var.set("")
+            self.subfolder_var.set("")  # Очищаем значение
 
+        # --- Логика для Custom-системы (Имя + Кнопка) ---
         if system == "Custom":
             self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
             self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
@@ -226,6 +263,8 @@ class TrimUIUploader:
             self.custom_name_label.grid_remove()
             self.custom_name_entry.grid_remove()
             self.save_system_btn.grid_remove()
+
+
 
     def save_custom_system(self):
         name = self.custom_name_var.get().strip()
