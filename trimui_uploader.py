@@ -115,9 +115,9 @@ class TrimUIUploader:
 
         ttk.Label(dest_frame, text="Система:").grid(row=0, column=0, sticky="w", pady=2)
         self.system_var = tk.StringVar(value=self.config.get("system", "PORTS"))
-        system_combo = ttk.Combobox(dest_frame, textvariable=self.system_var, values=list(SYSTEM_PATHS.keys()), width=15, state="readonly")
-        system_combo.grid(row=0, column=1, sticky="w", padx=5, pady=2)
-        system_combo.bind("<<ComboboxSelected>>", self.on_system_change)
+        self.system_combo = ttk.Combobox(dest_frame, textvariable=self.system_var, values=list(SYSTEM_PATHS.keys()), width=15, state="readonly")
+        self.system_combo.grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        self.system_combo.bind("<<ComboboxSelected>>", self.on_system_change)
 
         ttk.Label(dest_frame, text="Путь:").grid(row=0, column=2, sticky="w", pady=2)
         self.path_var = tk.StringVar(value=SYSTEM_PATHS.get(self.system_var.get(), ""))
@@ -126,10 +126,20 @@ class TrimUIUploader:
 
         ttk.Button(dest_frame, text="🔍 Найти путь", command=self.detect_path).grid(row=0, column=4, sticky="w", padx=5, pady=2)
 
-        ttk.Label(dest_frame, text="Подпапка:").grid(row=1, column=0, sticky="w", pady=2)
+        # Подпапка
+        self.subfolder_label = ttk.Label(dest_frame, text="Подпапка:")
+        self.subfolder_label.grid(row=1, column=0, sticky="w", pady=2)
+
         self.subfolder_var = tk.StringVar(value="")
-        ttk.Entry(dest_frame, textvariable=self.subfolder_var, width=45).grid(row=1, column=1, columnspan=4, sticky="we", padx=5, pady=2)
-        ttk.Label(dest_frame, text="(имя игры, для автопереименования картинок)").grid(row=2, column=0, columnspan=5, sticky="w")
+        self.subfolder_entry = ttk.Entry(dest_frame, textvariable=self.subfolder_var, width=45)
+        self.subfolder_entry.grid(row=1, column=1, columnspan=4, sticky="we", padx=5, pady=2)
+
+        self.subfolder_hint = ttk.Label(
+            dest_frame,
+            text="(имя игры — для PortMaster: будет папка Data/ports/<имя>)",
+            foreground="#666"
+        )
+        self.subfolder_hint.grid(row=2, column=0, columnspan=5, sticky="w")
 
         # Поля для сохранения Custom-системы (видны только при выборе Custom)
         self.custom_name_label = ttk.Label(dest_frame, text="Имя системы:")
@@ -187,6 +197,9 @@ class TrimUIUploader:
         self.log_text.configure(yscrollcommand=log_scroll.set)
         self.copy_btn = ttk.Button(action_frame, text="📋 Скопировать логи", command=self.copy_logs)
         self.copy_btn.pack(side="right", padx=5)
+        
+        # Скрываем/показываем поля в зависимости от выбранной системы
+        self.on_system_change()
 
 
     def on_system_change(self, event=None):
@@ -194,6 +207,18 @@ class TrimUIUploader:
         if system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
             self.path_var.set(SYSTEM_PATHS[system])
 
+        # Подпапка видна только для PORTS
+        if system == "PORTS":
+            self.subfolder_label.grid()
+            self.subfolder_entry.grid()
+            self.subfolder_hint.grid()
+        else:
+            self.subfolder_label.grid_remove()
+            self.subfolder_entry.grid_remove()
+            self.subfolder_hint.grid_remove()
+            self.subfolder_var.set("")
+
+        # Поля для сохранения Custom-системы
         if system == "Custom":
             self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
             self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
@@ -358,9 +383,19 @@ class TrimUIUploader:
     def get_remote_path(self):
         base = self.path_var.get().rstrip("/")
         sub = self.subfolder_var.get().strip()
+        system_name = self.system_var.get()
+
+        if system_name == "PORTS":
+            # PortMaster: файлы игры → Data/ports/{подпапка}/
+            mount_root = base.rsplit("/Roms/PORTS", 1)[0]
+            if sub:
+                return f"{mount_root}/Data/ports/{sub}"
+            return f"{mount_root}/Data/ports"
+
         if sub:
             return f"{base}/{sub}"
         return base
+
 
     def get_ssh_client(self):
         client = paramiko.SSHClient()
@@ -415,12 +450,19 @@ class TrimUIUploader:
             remote_base = self.get_remote_path()
 
             system_name = self.system_var.get()
-            if system_name == "Custom":
-                # Берём имя папки из последней части указанного пути
-                folder_name = remote_base.rstrip("/").split("/")[-1]
-                img_dir = f"/mnt/sdcard/mmcblk1p1/Imgs/{folder_name}"
+            base_path = self.path_var.get().rstrip("/")
+
+            # Корень монтирования — извлекаем из пути, а не хардкодим
+            if "/Roms/" in base_path:
+                mount_root = base_path.split("/Roms/")[0]
             else:
-                img_dir = f"/mnt/sdcard/mmcblk1p1/Imgs/{system_name}"
+                mount_root = "/mnt/sdcard/mmcblk1p1"
+
+            if system_name == "Custom":
+                folder_name = base_path.split("/")[-1]
+                img_dir = f"{mount_root}/Imgs/{folder_name}"
+            else:
+                img_dir = f"{mount_root}/Imgs/{system_name}"
 
             self.run_remote(client, f"mkdir -p '{remote_base}'")
             self.run_remote(client, f"mkdir -p '{img_dir}'")
