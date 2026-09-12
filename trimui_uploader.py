@@ -48,6 +48,9 @@ SYSTEM_PATHS = {
     "Custom": "",
 }
 
+BASE_SYSTEMS = set(SYSTEM_PATHS.keys())
+
+
 
 class TrimUIUploader:
     def __init__(self, root):
@@ -64,11 +67,15 @@ class TrimUIUploader:
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    custom_systems = config.get("custom_systems", {})
+                    SYSTEM_PATHS.update(custom_systems)
+                    return config
             except:
                 pass
         return {"ip": "", "username": "root", "password": "",
                 "system": "PORTS", "remote_base": "/mnt/sdcard/mmcblk1p1/Roms"}
+
 
     def save_config(self):
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -123,6 +130,12 @@ class TrimUIUploader:
         self.subfolder_var = tk.StringVar(value="")
         ttk.Entry(dest_frame, textvariable=self.subfolder_var, width=45).grid(row=1, column=1, columnspan=4, sticky="we", padx=5, pady=2)
         ttk.Label(dest_frame, text="(имя игры, для автопереименования картинок)").grid(row=2, column=0, columnspan=5, sticky="w")
+
+        # Поля для сохранения Custom-системы (видны только при выборе Custom)
+        self.custom_name_label = ttk.Label(dest_frame, text="Имя системы:")
+        self.custom_name_var = tk.StringVar(value="")
+        self.custom_name_entry = ttk.Entry(dest_frame, textvariable=self.custom_name_var, width=15)
+        self.save_system_btn = ttk.Button(dest_frame, text="💾 Сохранить", command=self.save_custom_system)
 
         game_frame = ttk.LabelFrame(self.root, text="Файлы игры", padding=10)
         game_frame.pack(fill="both", expand=True, padx=10, pady=5)
@@ -181,6 +194,39 @@ class TrimUIUploader:
         if system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
             self.path_var.set(SYSTEM_PATHS[system])
 
+        if system == "Custom":
+            self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
+            self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+            self.save_system_btn.grid(row=3, column=2, sticky="w", pady=2)
+        else:
+            self.custom_name_label.grid_remove()
+            self.custom_name_entry.grid_remove()
+            self.save_system_btn.grid_remove()
+
+    def save_custom_system(self):
+        name = self.custom_name_var.get().strip()
+        path = self.path_var.get().strip()
+        if not name:
+            messagebox.showwarning("Внимание", "Введите имя для новой системы.")
+            return
+        if not path:
+            messagebox.showwarning("Внимание", "Укажите путь для системы.")
+            return
+
+        SYSTEM_PATHS[name] = path
+
+        if "custom_systems" not in self.config:
+            self.config["custom_systems"] = {}
+        self.config["custom_systems"][name] = path
+        self.save_config()
+
+        self.system_combo["values"] = list(SYSTEM_PATHS.keys())
+        self.system_var.set(name)
+        self.on_system_change()
+
+        self.log(f"Система «{name}» сохранена: {path}")
+        self.set_status(f"Система «{name}» добавлена в список")
+
     def detect_path(self):
         if not HAS_PARAMIKO:
             messagebox.showerror("Ошибка", "paramiko не установлен.")
@@ -214,7 +260,7 @@ class TrimUIUploader:
                 self.log(f"Используется: {roms_base}")
 
                 # Обновляем все пути в SYSTEM_PATHS
-                for system in SYSTEM_PATHS:
+                for system in BASE_SYSTEMS:
                     if system != "Custom" and SYSTEM_PATHS[system]:
                         SYSTEM_PATHS[system] = f"{roms_base}/{system}"
 
