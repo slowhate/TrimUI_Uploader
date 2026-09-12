@@ -37,7 +37,7 @@ SYSTEM_PATHS = {
     "NEOMVS": "/mnt/sdcard/mmcblk1p1/Roms/NEOMVS",
     "NGP": "/mnt/sdcard/mmcblk1p1/Roms/NGP",
     "PCE": "/mnt/sdcard/mmcblk1p1/Roms/PCE",
-    "PORTS": "/mnt/sdcard/mmcblk1p1/Roms/PORTS",
+    "PORTS": "/mnt/sdcard/mmcblk1p1",
     "PS": "/mnt/sdcard/mmcblk1p1/Roms/PS",
     "PSP": "/mnt/sdcard/mmcblk1p1/Roms/PSP",
     "SATURN": "/mnt/sdcard/mmcblk1p1/Roms/SATURN",
@@ -197,17 +197,17 @@ class TrimUIUploader:
         self.log_text.configure(yscrollcommand=log_scroll.set)
         self.copy_btn = ttk.Button(action_frame, text="📋 Скопировать логи", command=self.copy_logs)
         self.copy_btn.pack(side="right", padx=5)
-        
+
         # Скрываем/показываем поля в зависимости от выбранной системы
         self.on_system_change()
 
 
     def on_system_change(self, event=None):
         system = self.system_var.get()
+
         if system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
             self.path_var.set(SYSTEM_PATHS[system])
 
-        # Подпапка видна только для PORTS
         if system == "PORTS":
             self.subfolder_label.grid()
             self.subfolder_entry.grid()
@@ -218,7 +218,6 @@ class TrimUIUploader:
             self.subfolder_hint.grid_remove()
             self.subfolder_var.set("")
 
-        # Поля для сохранения Custom-системы
         if system == "Custom":
             self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
             self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
@@ -386,15 +385,14 @@ class TrimUIUploader:
         system_name = self.system_var.get()
 
         if system_name == "PORTS":
-            # PortMaster: файлы игры → Data/ports/{подпапка}/
-            mount_root = base.rsplit("/Roms/PORTS", 1)[0]
             if sub:
-                return f"{mount_root}/Data/ports/{sub}"
-            return f"{mount_root}/Data/ports"
+                return f"{base}/Data/ports/{sub}"
+            return f"{base}/Data/ports"
 
         if sub:
             return f"{base}/{sub}"
         return base
+
 
 
     def get_ssh_client(self):
