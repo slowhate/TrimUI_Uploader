@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import datetime
 import threading
@@ -13,6 +14,14 @@ except ImportError:
 
 APP_TITLE = "TrimUI Game Uploader"
 CONFIG_FILE = "trimui_uploader.json"
+
+def get_config_path():
+    """Возвращает путь к конфигу: рядом с .exe или в текущей папке."""
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        return os.path.join(exe_dir, CONFIG_FILE)
+    else:
+        return CONFIG_FILE
 
 SYSTEM_PATHS = {
     "ARCADE": "/mnt/sdcard/mmcblk1p1/Roms/ARCADE",
@@ -58,15 +67,16 @@ class TrimUIUploader:
         self.root.title(APP_TITLE)
         self.root.geometry("720x680")
         self.root.minsize(600, 600)
+        self.config_path = get_config_path()
         self.config = self.load_config()
         self.game_files = []
         self.image_files = []
         self.build_ui()
 
     def load_config(self):
-        if os.path.exists(CONFIG_FILE):
+        if os.path.exists(self.config_path):
             try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
                     custom_systems = config.get("custom_systems", {})
                     SYSTEM_PATHS.update(custom_systems)
@@ -78,7 +88,7 @@ class TrimUIUploader:
 
 
     def save_config(self):
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(self.config, f, ensure_ascii=False, indent=2)
 
     def save_config_data(self):
