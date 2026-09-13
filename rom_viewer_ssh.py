@@ -3,7 +3,7 @@ import io
 import threading
 import hashlib
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 
 import paramiko
@@ -78,11 +78,10 @@ PLATFORM_MAP = {
 }
 
 # Папки, где обычно лежат обложки на Trimui Smart Pro
-COVER_DIRS = ["ims", "images", "covers", "img", "art", "Imgs"]
 COVER_EXTS = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"]
 ROM_EXTS = {
-    ".nes", ".fc", ".sfc", ".smc", ".fig", ".sfc",
-    ".md", ".bin", ".gen", ".sms", ".gg",
+    ".nes", ".fc", ".sfc", ".smc", ".fig",
+    ".md", ".gen", ".sms", ".gg",
     ".gb", ".gbc", ".gba",
     ".n64", ".z64", ".v64", ".ndd",
     ".nds", ".ids",
@@ -127,12 +126,11 @@ class SSHConnection:
             self.callback(f"Подключено к {self.host}")
 
     def exec(self, command, timeout=10):
-        import socket
         try:
             stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
             stdout.channel.settimeout(timeout)
             return stdout.read().decode("utf-8", errors="replace").strip()
-        except (socket.timeout, Exception):
+        except Exception:
             return ""
 
 
@@ -203,9 +201,15 @@ class RomViewerSSH(tk.Toplevel):
 
     def _build_ui(self):
         # Статус-бар — на self, отдельно от main_frame
-        self.lbl_status = ttk.Label(self, text="Подключение…",
+        bottom_bar = ttk.Frame(self)
+        bottom_bar.pack(fill="x", side="bottom")
+
+        self.progress = ttk.Progressbar(bottom_bar, mode="determinate", maximum=100)
+        self.progress.pack(fill="x")
+
+        self.lbl_status = ttk.Label(bottom_bar, text="Подключение…",
                                      anchor="w", relief="sunken", padding=4)
-        self.lbl_status.pack(fill="x", side="bottom")
+        self.lbl_status.pack(fill="x")
 
         # Контейнер для всего, кроме статус-бара
         main_frame = ttk.Frame(self)
@@ -504,7 +508,8 @@ class RomViewerSSH(tk.Toplevel):
             return
         rom = self.current_rom
 
-        local_path = tk.filedialog.askopenfilename(
+        local_path = filedialog.askopenfilename(
+            parent=self,
             title="Выберите новую обложку",
             filetypes=[("Изображения", "*.png *.jpg *.jpeg *.bmp *.webp")]
         )
@@ -535,54 +540,47 @@ class RomViewerSSH(tk.Toplevel):
         ).start()
 
     def _change_cover_thread(self, local_path, remote_path, rom):
-        cover_path = rom.get("cover")  # старый путь, для очистки кэша
+        cover_path = rom.get("cover")
+        temp_png = None
+        upload_path = local_path
 
         try:
             sftp = self.ssh.client.open_sftp()
 
-            # Если файл не PNG — конвертируем через PIL
-            upload_path = local_path
             ext = os.path.splitext(local_path)[1].lower()
             if ext != ".png":
                 try:
-                    from PIL import Image
                     img = Image.open(local_path)
                     img = img.convert("RGBA")
-                    temp_png = os.path.join(
-                        os.path.dirname(local_path),
-                        "_cover_tmp.png"
-                    )
+                    dir_name = os.path.dirname(local_path) or "."
+                    temp_png = os.path.join(dir_name, "_cover_tmp.png")
                     img.save(temp_png, "PNG")
                     upload_path = temp_png
                 except Exception:
-                    pass  # если PIL нет — грузим как есть
+                    pass  # если конвертация не удалась — грузим как есть
 
             sftp.put(upload_path, remote_path)
             sftp.close()
 
-            # Чистим временный файл
-            if upload_path != local_path and os.path.exists(upload_path):
-                os.remove(upload_path)
-
-            # Обновляем путь обложки в rom
-            rom["cover"] = remote_path
-            # Сбрасываем кэш, чтобы превью перезагрузилось
+            # Обновляем кэш и сбрасываем старый
             if cover_path in self.cover_cache:
                 del self.cover_cache[cover_path]
-
-            # Обновляем превью из локального файла
+            rom["cover"] = remote_path
             self.after(0, lambda: self._show_cover_from_local(local_path))
-            self.after(0, lambda: self.lbl_status.config(
-                text="✅ Обложка обновлена"))
+            self.after(0, lambda: self.lbl_status.config(text="✅ Обложка обновлена"))
 
         except Exception as e:
             err = str(e)
-            self.after(0, lambda: messagebox.showerror(
-                "Ошибка", f"Не удалось загрузить обложку:\n{err}"))
-            self.after(0, lambda: self.lbl_status.config(
-                text=f"❌ Ошибка: {err}"))
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось загрузить обложку:\n{err}"))
+            self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
         finally:
             self.after(0, lambda: self.btn_cover.config(state="normal"))
+            # Гарантированно удаляем временный файл, если он был создан
+            if temp_png and os.path.exists(temp_png):
+                try:
+                    os.remove(temp_png)
+                except OSError:
+                    pass
 
 
     def _on_scan_done(self, platforms):
@@ -742,7 +740,8 @@ class RomViewerSSH(tk.Toplevel):
         rom = self.current_rom
         
         initial_name = rom["filename"]
-        file_path = tk.filedialog.asksaveasfilename(
+        file_path = filedialog.asksaveasfilename(
+            parent=self,
             title="Сохранить ROM",
             initialfile=initial_name,
             filetypes=[
@@ -769,17 +768,22 @@ class RomViewerSSH(tk.Toplevel):
         cover_path = rom.get("cover")
 
         if not cover_path:
-            messagebox.showinfo("Нет обложки",
-                "У этой игры нет обложки на консоли.")
+            messagebox.showinfo("Нет обложки", "У этой игры нет обложки на консоли.")
             return
 
-        save_path = tk.filedialog.asksaveasfilename(
+        initial_name = os.path.basename(cover_path)
+        save_path = filedialog.asksaveasfilename(
+            parent=self,
             title="Сохранить обложку",
-            initialfile=os.path.basename(cover_path),
+            initialfile=initial_name,
             filetypes=[("PNG", "*.png"), ("All files", "*")]
         )
         if not save_path:
             return
+
+        # Добавляем .png, если расширения нет
+        if not os.path.splitext(save_path)[1]:
+            save_path += ".png"
 
         self.lbl_status.config(text="Скачивание обложки…")
         threading.Thread(
@@ -788,19 +792,38 @@ class RomViewerSSH(tk.Toplevel):
             daemon=True
         ).start()
 
+
     def _download_cover_thread(self, remote_path, local_path):
         try:
             sftp = self.ssh.client.open_sftp()
-            sftp.get(remote_path, local_path)
+
+            try:
+                file_size = sftp.stat(remote_path).st_size
+            except Exception:
+                file_size = 0
+
+            self.after(0, lambda: self.progress.config(maximum=100, value=0))
+
+            def callback(transferred, total):
+                pct = int((transferred / total) * 100) if total > 0 else 0
+                self.after(0, lambda p=pct: (
+                    self.progress.config(value=p),
+                    self.lbl_status.config(text=f"⬇ Обложка… {p}%")
+                ))
+
+            sftp.get(remote_path, local_path, callback=callback)
             sftp.close()
+            self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.lbl_status.config(
                 text=f"✅ Обложка сохранена: {os.path.basename(local_path)}"))
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
                 "Ошибка", f"Не удалось скачать обложку:\n{err}"))
-            self.after(0, lambda: self.lbl_status.config(
-                text=f"❌ Ошибка: {err}"))
+            self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
+        finally:
+            self.after(0, lambda: self.progress.config(value=0))
+
 
 
     def _download_pack(self):
@@ -817,7 +840,9 @@ class RomViewerSSH(tk.Toplevel):
         folder_name = f"{platform} - {game_name}"
 
         # Диалог выбора ПАПКИ (не файла!), куда положить этот пак
-        dir_path = tk.filedialog.askdirectory(title="Выберите папку для сохранения ПАКа")
+        dir_path = filedialog.askdirectory(
+            parent=self,
+            title="Выберите папку для сохранения ПАКа")
         if not dir_path:
             return  # отмена
 
@@ -834,50 +859,90 @@ class RomViewerSSH(tk.Toplevel):
     def _download_thread(self, rom, local_path):
         remote_path = rom["path"]
         try:
-            # Получаем SFTP-сессию из существующего SSH-клиента
             sftp = self.ssh.client.open_sftp()
-            
-            # Качаем файл напрямую, chunk-by-chunk (не в память!)
-            # Это работает даже с файлами > 4 ГБ
-            sftp.get(remote_path, local_path)
-            
+
+            try:
+                attr = sftp.stat(remote_path)
+                file_size = attr.st_size
+            except Exception:
+                file_size = 0
+
+            self.after(0, lambda: self.progress.config(maximum=100, value=0))
+
+            def callback(transferred, total):
+                pct = int((transferred / total) * 100) if total > 0 else 0
+                self.after(0, lambda p=pct, t=transferred: (
+                    self.progress.config(value=p),
+                    self.lbl_status.config(
+                        text=f"⬇ {t // 1024} / {file_size // 1024} КБ ({pct}%)")
+                ))
+
+            sftp.get(remote_path, local_path, callback=callback)
             sftp.close()
 
+            self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.lbl_status.config(
                 text=f"✅ Готово: {os.path.basename(local_path)}"))
-            
+
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
                 "Ошибка скачивания", f"Не удалось скачать файл:\n{err}"))
             self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
-        
         finally:
-            # Возвращаем кнопку в рабочее состояние
+            self.after(0, lambda: self.progress.config(value=0))
             self.after(0, lambda: self.btn_download.config(state="normal"))
 
     def _download_pack_thread(self, rom, target_folder):
         remote_rom_path = rom["path"]
-        remote_cover_path = rom.get("cover")  # может быть None
+        remote_cover_path = rom.get("cover")
 
         try:
-            # Создаём целевую папку
             os.makedirs(target_folder, exist_ok=True)
+            sftp = self.ssh.client.open_sftp()
+
+            # Считаем общий размер обоих файлов
+            rom_size = 0
+            cover_size = 0
+            try:
+                rom_size = sftp.stat(remote_rom_path).st_size
+            except Exception:
+                pass
+            if remote_cover_path:
+                try:
+                    cover_size = sftp.stat(remote_cover_path).st_size
+                except Exception:
+                    pass
+            total_size = rom_size + cover_size
+
+            self.after(0, lambda: self.progress.config(maximum=100, value=0))
+
+            def make_callback(file_label, file_offset):
+                def callback(transferred, total):
+                    overall = file_offset + transferred
+                    pct = int((overall / total_size) * 100) if total_size > 0 else 0
+                    self.after(0, lambda p=pct, l=file_label: (
+                        self.progress.config(value=p),
+                        self.lbl_status.config(text=f"⬇ {l}… {p}%")
+                    ))
+                return callback
 
             # 1. Качаем игру
-            sftp = self.ssh.client.open_sftp()
             game_filename = os.path.basename(remote_rom_path)
             game_local_path = os.path.join(target_folder, game_filename)
-            sftp.get(remote_rom_path, game_local_path)
+            sftp.get(remote_rom_path, game_local_path,
+                     callback=make_callback(game_filename, 0))
 
             # 2. Если есть обложка — качаем её
             if remote_cover_path:
                 cover_filename = os.path.basename(remote_cover_path)
                 cover_local_path = os.path.join(target_folder, cover_filename)
-                sftp.get(remote_cover_path, cover_local_path)
+                sftp.get(remote_cover_path, cover_local_path,
+                         callback=make_callback(cover_filename, rom_size))
 
             sftp.close()
 
+            self.after(0, lambda: self.progress.config(value=100))
             self.after(0, lambda: self.lbl_status.config(
                 text=f"✅ ПАК сохранён: {os.path.basename(target_folder)}"))
 
@@ -886,9 +951,8 @@ class RomViewerSSH(tk.Toplevel):
             self.after(0, lambda: messagebox.showerror(
                 "Ошибка скачивания ПАКа", f"Не удалось скачать:\n{err}"))
             self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
-
         finally:
-            # Возвращаем кнопки
+            self.after(0, lambda: self.progress.config(value=0))
             self.after(0, lambda: self.btn_download.config(state="normal"))
             self.after(0, lambda: self.btn_pack.config(state="normal"))
 

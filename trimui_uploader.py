@@ -82,7 +82,7 @@ class TrimUIUploader:
                     custom_systems = config.get("custom_systems", {})
                     SYSTEM_PATHS.update(custom_systems)
                     return config
-            except:
+            except Exception:
                 pass
         return {"ip": "", "username": "root", "password": "",
                 "system": "PORTS", "remote_base": "/mnt/sdcard/mmcblk1p1/Roms"}
