@@ -5,6 +5,7 @@ import datetime
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from rom_viewer_ssh import RomViewerSSH
 
 try:
     import paramiko
@@ -160,7 +161,7 @@ class TrimUIUploader:
         # Строка 3: Поля для Custom (создаем и СРАЗУ скрываем через grid_remove)
         self.custom_name_label = ttk.Label(dest_frame, text="Имя системы:")
         self.custom_name_var = tk.StringVar(value="")
-        self.custom_name_entry = ttk.Entry(dest_frame, textvariable=self.custom_name_var, width=15)
+        self.custom_name_entry = ttk.Entry(dest_frame, textvariable=self.custom_name_var, width=18)
         self.save_system_btn = ttk.Button(dest_frame, text="💾 Сохранить", command=self.save_custom_system)
 
         # ВАЖНО: Сразу размещаем в сетке и скрываем. 
@@ -213,7 +214,8 @@ class TrimUIUploader:
         self.transfer_btn = ttk.Button(action_frame, text="Залить на консоль", command=self.start_transfer)
         self.transfer_btn.pack(side="left", padx=(0, 10))
         
-        ttk.Button(action_frame, text="Проверить соединение", command=self.test_connection).pack(side="left")
+        ttk.Button(action_frame, text="Проверить соединение", command=self.test_connection).pack(side="left", padx=(0, 10))
+        ttk.Button(action_frame, text="📂 Посмотреть ROM-ы", command=self.on_view_roms).pack(side="left", padx=(0, 10))
         
         self.progress = ttk.Progressbar(action_frame, mode="determinate")
         self.progress.pack(side="right", fill="x", expand=True, padx=(10, 0))
@@ -233,7 +235,7 @@ class TrimUIUploader:
         self.log_text.configure(yscrollcommand=log_scroll.set)
         
         self.copy_btn = ttk.Button(action_frame, text="📋 Скопировать логи", command=self.copy_logs)
-        self.copy_btn.pack(side="right", padx=5)
+        self.copy_btn.pack(side="right")
 
         # Инициализация видимости виджетов при старте
         self.on_system_change()
@@ -274,6 +276,52 @@ class TrimUIUploader:
             self.custom_name_entry.grid_remove()
             self.save_system_btn.grid_remove()
 
+    # Кнопка "Посмотреть ROM-ы":
+    def on_view_roms(self):
+        if not HAS_PARAMIKO:
+            messagebox.showerror("Ошибка", "paramiko не установлен.\nВыполните: pip install paramiko")
+            return
+        if not self.ip_var.get():
+            messagebox.showwarning("Внимание", "Укажите IP консоли.")
+            return
+
+        roms_base = self.get_roms_base()
+
+        # Вычисляем путь к обложкам: /mnt/sdcard/mmcblk1p1/Roms → /mnt/sdcard/mmcblk1p1/Imgs
+        if roms_base.endswith("/Roms"):
+            imgs_base = roms_base[:-5] + "/Imgs"
+        else:
+            imgs_base = None  # пусть просмотрщик вычислит сам
+
+        RomViewerSSH(
+            self.root,
+            host=self.ip_var.get(),
+            username=self.user_var.get(),
+            password=self.pass_var.get(),
+            rom_path=roms_base,
+            imgs_path=imgs_base,
+        )
+
+    def get_roms_base(self):
+        """Извлекает базовый путь к папке Roms из текущих настроек."""
+        # Пытаемся получить из текущего пути
+        current = self.path_var.get().strip()
+        if "/Roms/" in current:
+            return current.split("/Roms/")[0] + "/Roms"
+        if current.endswith("/Roms"):
+            return current
+
+        # Пытаемся получить из любой системы в SYSTEM_PATHS
+        for sys_name, sys_path in SYSTEM_PATHS.items():
+            if sys_name == "Custom":
+                continue
+            if sys_path and "/Roms/" in sys_path:
+                return sys_path.split("/Roms/")[0] + "/Roms"
+            if sys_path and sys_path.endswith("/Roms"):
+                return sys_path
+
+        # Fallback — значение по умолчанию
+        return "/mnt/sdcard/mmcblk1p1/Roms"
 
 
     def save_custom_system(self):
