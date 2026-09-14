@@ -432,6 +432,7 @@ class TrimUIUploader:
             messagebox.showwarning("Внимание", "Укажите IP консоли.")
             return
 
+
         def do_fetch():
             try:
                 self.set_status("Загрузка списка подпапок...")
