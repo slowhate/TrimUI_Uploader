@@ -72,6 +72,10 @@ class TrimUIUploader:
         self.config = self.load_config()
         self.game_files = []
         self.image_files = []
+        self.preserve_structure_var = tk.BooleanVar(value=False)
+        self.lowercase_var = tk.BooleanVar(value=False)
+        self.uppercase_var = tk.BooleanVar(value=False)
+        self._updating_system = False
         self.build_ui()
 
     def load_config(self):
@@ -147,8 +151,12 @@ class TrimUIUploader:
         self.subfolder_label.grid(row=1, column=0, sticky="w", pady=2)
 
         self.subfolder_var = tk.StringVar(value="")
-        self.subfolder_entry = ttk.Entry(dest_frame, textvariable=self.subfolder_var, width=45)
-        self.subfolder_entry.grid(row=1, column=1, columnspan=4, sticky="we", padx=5, pady=2)
+        self.subfolder_entry = ttk.Combobox(dest_frame, textvariable=self.subfolder_var, width=43)
+        self.subfolder_entry.grid(row=1, column=1, columnspan=3, sticky="we", padx=5, pady=2)
+
+        self.fetch_subfolders_btn = ttk.Button(dest_frame, text="📂",
+                                            command=self.fetch_port_subfolders)
+        self.fetch_subfolders_btn.grid(row=1, column=4, sticky="w", padx=(0, 5), pady=2)
 
         # Строка 2: Подсказка для подпапки
         self.subfolder_hint = ttk.Label(
@@ -185,6 +193,16 @@ class TrimUIUploader:
         ttk.Button(btn_frame, text="Добавить файлы", command=self.add_game_files).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Добавить папку", command=self.add_game_folder).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Очистить", command=self.clear_game_files).pack(side="left")
+
+        # Новые чекбоксы
+        opts_frame = ttk.Frame(game_frame)
+        opts_frame.pack(fill="x", pady=(0, 5))
+        ttk.Checkbutton(opts_frame, text="Сохранить структуру папок",
+                        variable=self.preserve_structure_var).pack(side="left", padx=(0, 10))
+        ttk.Checkbutton(opts_frame, text="Нижний регистр",
+                        variable=self.lowercase_var).pack(side="left", padx=(0, 10))
+        ttk.Checkbutton(opts_frame, text="Верхний регистр",
+                        variable=self.uppercase_var).pack(side="left")
 
         self.game_listbox = tk.Listbox(game_frame, height=5, selectmode=tk.EXTENDED)
         self.game_listbox.pack(side="left", fill="both", expand=True, pady=(0, 5))
@@ -241,40 +259,40 @@ class TrimUIUploader:
         self.on_system_change()
 
 
-
-
     def on_system_change(self, event=None):
-        system = self.system_var.get()
+        if self._updating_system:
+            return
+        self._updating_system = True
+        try:
+            system = self.system_var.get()
 
-        # Логика установки пути
-        if system == "Custom":
-            # Для Custom путь очищаем, пользователь должен ввести его сам
-            self.path_var.set("")
-        elif system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
-            # Для остальных систем берем из словаря
-            self.path_var.set(SYSTEM_PATHS[system])
+            if system == "Custom":
+                self.path_var.set("")
+            elif system in SYSTEM_PATHS and SYSTEM_PATHS[system]:
+                self.path_var.set(SYSTEM_PATHS[system])
 
-        # --- Логика для подпапки (только PORTS) ---
-        if system == "PORTS":
-            self.subfolder_label.grid()
-            self.subfolder_entry.grid()
-            self.subfolder_hint.grid()
-        else:
-            # Используем grid_remove(), а не grid_forget(), чтобы сохранить позиции в сетке
-            self.subfolder_label.grid_remove()
-            self.subfolder_entry.grid_remove()
-            self.subfolder_hint.grid_remove()
-            self.subfolder_var.set("")  # Очищаем значение
+            if system == "PORTS":
+                self.subfolder_label.grid()
+                self.subfolder_entry.grid()
+                self.subfolder_hint.grid()
+                self.fetch_subfolders_btn.grid()
+            else:
+                self.subfolder_label.grid_remove()
+                self.subfolder_entry.grid_remove()
+                self.subfolder_hint.grid_remove()
+                self.fetch_subfolders_btn.grid_remove()
+                self.subfolder_var.set("")
 
-        # --- Логика для Custom-системы (Имя + Кнопка) ---
-        if system == "Custom":
-            self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
-            self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
-            self.save_system_btn.grid(row=3, column=2, sticky="w", pady=2)
-        else:
-            self.custom_name_label.grid_remove()
-            self.custom_name_entry.grid_remove()
-            self.save_system_btn.grid_remove()
+            if system == "Custom":
+                self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
+                self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+                self.save_system_btn.grid(row=3, column=2, sticky="w", pady=2)
+            else:
+                self.custom_name_label.grid_remove()
+                self.custom_name_entry.grid_remove()
+                self.save_system_btn.grid_remove()
+        finally:
+            self._updating_system = False
 
     # Кнопка "Посмотреть ROM-ы":
     def on_view_roms(self):
@@ -380,13 +398,22 @@ class TrimUIUploader:
                 roms_base = paths[0]
                 self.log(f"Используется: {roms_base}")
 
-                # Обновляем все пути в SYSTEM_PATHS
                 for system in BASE_SYSTEMS:
                     if system != "Custom" and SYSTEM_PATHS[system]:
-                        SYSTEM_PATHS[system] = f"{roms_base}/{system}"
+                        if system == "PORTS":
+                            # PORTS — это корень монтирования, а не Roms/PORTS
+                            SYSTEM_PATHS[system] = roms_base.replace("/Roms", "")
+                        else:
+                            SYSTEM_PATHS[system] = f"{roms_base}/{system}"
 
-                # Обновляем текущий путь в интерфейсе
-                self.on_system_change()
+                # Обновляем UI без авто-вызовов
+                self._updating_system = True
+                try:
+                    current_system = self.system_var.get()
+                    if current_system in SYSTEM_PATHS and SYSTEM_PATHS[current_system]:
+                        self.path_var.set(SYSTEM_PATHS[current_system])
+                finally:
+                    self._updating_system = False
 
                 self.set_status(f"Путь определён: {roms_base}")
                 self.log("Базовый путь обновлён для всех систем.")
@@ -397,6 +424,61 @@ class TrimUIUploader:
 
         threading.Thread(target=do_detect, daemon=True).start()
 
+    def fetch_port_subfolders(self):
+        if not HAS_PARAMIKO:
+            messagebox.showerror("Ошибка", "paramiko не установлен.")
+            return
+        if not self.ip_var.get():
+            messagebox.showwarning("Внимание", "Укажите IP консоли.")
+            return
+
+        def do_fetch():
+            try:
+                self.set_status("Загрузка списка подпапок...")
+                self.log("Получение списка портов с консоли...")
+                client = self.get_ssh_client()
+
+                # Путь к Data/ports — в КОРНЕ монтирования, а не в Roms/PORTS
+                base_path = self.path_var.get().rstrip("/")
+                if "/Roms/" in base_path:
+                    mount_root = base_path.split("/Roms/")[0]
+                else:
+                    mount_root = base_path
+
+                ports_dir = f"{mount_root}/Data/ports"
+
+                self.log(f"Поиск портов в: {ports_dir}")
+                stdin, stdout, stderr = client.exec_command(
+                    f"ls -1d {ports_dir}/*/ 2>/dev/null"
+                )
+                result = stdout.read().decode().strip()
+
+                if not result:
+                    self.log(f"Папка {ports_dir} пуста или не существует.")
+                    self.set_status("Существующих подпапок не найдено")
+                    client.close()
+                    return
+
+                subfolders = []
+                for line in result.splitlines():
+                    name = line.strip().rstrip("/")
+                    name = os.path.basename(name)
+                    if name:
+                        subfolders.append(name)
+
+                subfolders.sort()
+                self.subfolder_entry["values"] = subfolders
+                self.log(f"Найдено подпапок: {len(subfolders)}")
+                for s in subfolders:
+                    self.log(f"  {s}")
+                self.set_status(f"Загружено {len(subfolders)} подпапок")
+
+                client.close()
+            except Exception as e:
+                self.set_status(f"Ошибка: {e}")
+                self.log(f"Ошибка при получении подпапок: {e}")
+
+        threading.Thread(target=do_fetch, daemon=True).start()
 
     def log(self, msg):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
@@ -445,20 +527,31 @@ class TrimUIUploader:
     def add_game_files(self):
         files = filedialog.askopenfilenames(title="Выберите файлы игры")
         for f in files:
+            rel = os.path.basename(f)  # отдельные файлы — всегда basename
             self.game_listbox.insert("end", f)
-            self.game_files.append(f)
+            self.game_files.append((f, rel))
         if files:
             self.log(f"Добавлено файлов: {len(files)}")
 
     def add_game_folder(self):
         folder = filedialog.askdirectory(title="Выберите папку с игрой")
         if folder:
+            preserve = self.preserve_structure_var.get()
+            folder_name = os.path.basename(folder)
+            count = 0
             for root_dir, dirs, files in os.walk(folder):
                 for f in files:
                     full = os.path.join(root_dir, f)
+                    # Относительный путь внутри выбранной папки (со всеми подпапками)
+                    rel = os.path.relpath(full, folder).replace("\\", "/")
+                    if preserve:
+                        # Добавляем имя самой папки в начало пути
+                        rel = f"{folder_name}/{rel}"
+                    # Без флага — rel уже содержит подпапки, но без имени выбранной папки
                     self.game_listbox.insert("end", full)
-                    self.game_files.append(full)
-            self.log(f"Добавлена папка: {folder}")
+                    self.game_files.append((full, rel))
+                    count += 1
+            self.log(f"Добавлена папка: {folder} ({count} файлов)")
 
     def clear_game_files(self):
         self.game_files.clear()
@@ -547,11 +640,10 @@ class TrimUIUploader:
             system_name = self.system_var.get()
             base_path = self.path_var.get().rstrip("/")
 
-            # Корень монтирования — извлекаем из пути, а не хардкодим
             if "/Roms/" in base_path:
                 mount_root = base_path.split("/Roms/")[0]
             else:
-                mount_root = "/mnt/sdcard/mmcblk1p1"
+                mount_root = base_path
 
             if system_name == "Custom":
                 folder_name = base_path.split("/")[-1]
@@ -563,15 +655,30 @@ class TrimUIUploader:
             self.run_remote(client, f"mkdir -p '{img_dir}'")
 
             sub_name = self.subfolder_var.get().strip()
+            # Группируем файлы игр по "играм" — по первому компоненту пути
+            game_groups = []
+            seen_groups = set()
+            for local_path, rel_path in self.game_files:
+                if "/" in rel_path:
+                    group_key = rel_path.split("/")[0]
+                else:
+                    group_key = os.path.splitext(rel_path)[0]
+                if group_key not in seen_groups:
+                    seen_groups.add(group_key)
+                    game_groups.append(group_key)
+
             renamed_images = []
             used_names = set()
-            for local_path in self.image_files:
+            for idx, local_path in enumerate(self.image_files):
                 ext = os.path.splitext(local_path)[1]
                 if sub_name:
                     base_name = sub_name
-                elif self.game_files:
-                    game_name = os.path.splitext(os.path.basename(self.game_files[0]))[0]
-                    base_name = game_name
+                elif idx < len(game_groups):
+                    # Картинка №1 → имя игры №1, картинка №2 → имя игры №2 и т.д.
+                    base_name = game_groups[idx]
+                elif game_groups:
+                    # Лишние картинки (больше чем игр) → имя последней игры + суффикс
+                    base_name = game_groups[-1]
                 else:
                     base_name = os.path.splitext(os.path.basename(local_path))[0]
                 if base_name in used_names:
@@ -582,10 +689,26 @@ class TrimUIUploader:
                 used_names.add(base_name)
                 renamed_images.append((local_path, f"{base_name}{ext}"))
 
-            all_files = [("game", f, os.path.basename(f)) for f in self.game_files] + \
-                        [("image", local, remote) for local, remote in renamed_images]
+            # Функция конвертации регистра
+            def convert_case(name):
+                if self.lowercase_var.get():
+                    return name.lower()
+                elif self.uppercase_var.get():
+                    return name.upper()
+                return name
 
-            # Считаем общий вес всех файлов
+            # Сборка списка с применением регистра
+            game_entries = []
+            for local_path, rel_path in self.game_files:
+                remote_name = convert_case(rel_path)
+                game_entries.append(("game", local_path, remote_name))
+
+            image_entries = [("image", local, convert_case(remote)) 
+                            for local, remote in renamed_images]
+
+            all_files = game_entries + image_entries
+
+            # Считаем общий вес
             grand_total = sum(os.path.getsize(f[1]) for f in all_files)
             self.progress["maximum"] = 100
             self.progress["value"] = 0
@@ -593,9 +716,31 @@ class TrimUIUploader:
             self.log(f"Передача {len(all_files)} файлов ({total_mb:.1f} МБ) в {remote_base}...")
             self.log(f"Картинки -> {img_dir}")
 
+            # Множество уже созданных удалённых папок
+            created_dirs = set()
+
             file_offset = 0
             for i, (ftype, local_path, remote_name) in enumerate(all_files):
-                remote_path = f"{img_dir}/{remote_name}" if ftype == "image" else f"{remote_base}/{remote_name}"
+                if ftype == "image":
+                    remote_path = f"{img_dir}/{remote_name}"
+                else:
+                    if "/" in remote_name:
+                        # Создаём подпапки на консоли
+                        parts = remote_name.split("/")
+                        current = remote_base
+                        for part in parts[:-1]:
+                            current = f"{current}/{part}"
+                            if current not in created_dirs:
+                                try:
+                                    sftp.mkdir(current)
+                                except IOError:
+                                    pass  # уже существует
+                                created_dirs.add(current)
+                        remote_path = f"{remote_base}/{remote_name}"
+                    else:
+                        # Без структуры — только имя файла
+                        remote_path = f"{remote_base}/{os.path.basename(remote_name)}"
+
                 file_size = os.path.getsize(local_path)
                 file_mb = file_size / (1024 * 1024)
                 self.log(f"[{i+1}/{len(all_files)}] {remote_name} ({file_mb:.1f} МБ) -> {remote_path}")
