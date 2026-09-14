@@ -192,7 +192,9 @@ class RomViewerSSH(tk.Toplevel):
         self.cover_size = 300
         self.current_cover_path = None
         self.cover_photo = None
+        self._alive = True
         self.current_rom = None
+
 
         self._build_ui()
         self.after(100, self._connect_and_scan)
@@ -358,32 +360,47 @@ class RomViewerSSH(tk.Toplevel):
             self.info_labels[key] = val
 
 
-        # Кнопки — 3 ряда × 2 колонки
+        # Кнопки — сетка 3×2 + 1 кнопка на всю ширину (или 4×2, если хочешь 4 ряда)
         btns = ttk.Frame(right, padding=(0, 10, 0, 0))
         btns.grid(row=2, column=0, sticky="ew")
 
+        # Вес колонок одинаковый
         btns.columnconfigure(0, weight=1)
         btns.columnconfigure(1, weight=1)
 
+        # Опционально: чтобы все строки были одинаковой высоты, можно задать weight для строк
+        btns.rowconfigure(0, weight=0)
+        btns.rowconfigure(1, weight=0)
+        btns.rowconfigure(2, weight=0)  # если 3 ряда
+        # btns.rowconfigure(3, weight=0)  # если будет 4‑й ряд
+
+        # Row 0
         self.btn_copy = ttk.Button(btns, text="📋 Копировать путь",
-                                   command=self._copy_path)
+                                command=self._copy_path)
         self.btn_copy.grid(row=0, column=0, padx=(0, 4), pady=2, sticky="ew")
 
         self.btn_download = ttk.Button(btns, text="📂 Скачать на ПК",
-                                       command=self._download_rom)
+                                    command=self._download_rom)
         self.btn_download.grid(row=0, column=1, padx=(4, 0), pady=2, sticky="ew")
 
+        # Row 1
         self.btn_pack = ttk.Button(btns, text="📦 Скачать ПАК",
-                                   command=self._download_pack)
+                                command=self._download_pack)
         self.btn_pack.grid(row=1, column=0, padx=(0, 4), pady=2, sticky="ew")
 
         self.btn_cover = ttk.Button(btns, text="🖼 Изменить обложку",
                                     command=self._change_cover)
         self.btn_cover.grid(row=1, column=1, padx=(4, 0), pady=2, sticky="ew")
 
+        # Row 2 — теперь обе кнопки с одинаковым pady сверху и снизу
         self.btn_dl_cover = ttk.Button(btns, text="💾 Скачать обложку",
-                                       command=self._download_cover)
-        self.btn_dl_cover.grid(row=2, column=0, columnspan=2, padx=0, pady=4, sticky="ew")
+                                    command=self._download_cover)
+        self.btn_dl_cover.grid(row=2, column=0, padx=(0, 4), pady=2, sticky="ew")
+
+        self.btn_delete = ttk.Button(btns, text="🗑 Удалить ROM",
+                                    command=self._delete_rom)
+        self.btn_delete.grid(row=2, column=1, padx=(4, 0), pady=2, sticky="ew")
+
 
 
 
@@ -395,6 +412,8 @@ class RomViewerSSH(tk.Toplevel):
         threading.Thread(target=self._scan_thread, daemon=True).start()
 
     def _scan_thread(self):
+        if not self._alive:
+            return
         try:
             if self.ssh:
                 self.ssh.close()
@@ -406,7 +425,7 @@ class RomViewerSSH(tk.Toplevel):
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
-                "Ошибка SSH", f"Не удалось подключиться:\n{err}"))
+                "Ошибка SSH", f"Не удалось подключиться:\n{err}", parent=self))
             self.after(0, lambda: self.lbl_status.config(
                 text=f"Ошибка: {err}"))
             self.after(0, lambda: self.btn_rescan.config(state="normal"))
@@ -420,7 +439,7 @@ class RomViewerSSH(tk.Toplevel):
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
-                "Ошибка", f"Не удалось прочитать папку {self.rom_path}:\n{err}"))
+                "Ошибка", f"Не удалось прочитать папку {self.rom_path}:\n{err}", parent=self))
             self.after(0, lambda: self.lbl_status.config(text=f"Ошибка: {err}"))
             self.after(0, lambda: self.btn_rescan.config(state="normal"))
             return
@@ -501,6 +520,8 @@ class RomViewerSSH(tk.Toplevel):
                 })
 
         platforms = sorted(set(r["platform"] for r in self.roms))
+        if not self._alive:
+            return
         self.after(0, lambda: self._on_scan_done(platforms))
 
     def _change_cover(self):
@@ -540,6 +561,8 @@ class RomViewerSSH(tk.Toplevel):
         ).start()
 
     def _change_cover_thread(self, local_path, remote_path, rom):
+        if not self._alive:
+            return
         cover_path = rom.get("cover")
         temp_png = None
         upload_path = local_path
@@ -584,6 +607,8 @@ class RomViewerSSH(tk.Toplevel):
 
 
     def _on_scan_done(self, platforms):
+        if not self._alive:
+            return
         self.cmb_platform["values"] = ["Все"] + platforms
         self.cmb_platform.set("Все")
         self._apply_filters()
@@ -703,6 +728,8 @@ class RomViewerSSH(tk.Toplevel):
 
 
     def _load_cover_thread(self, cover_path):
+        if not self._alive:
+            return
         try:
             data = self.ssh.read_file_bytes(cover_path, max_bytes=5 * 1024 * 1024)
             img = Image.open(io.BytesIO(data))
@@ -715,6 +742,8 @@ class RomViewerSSH(tk.Toplevel):
 
 
     def _calc_md5(self, rom):
+        if not self._alive:
+            return
         try:
             md5 = self.ssh.read_file_md5(rom["path"], max_bytes=16 * 1024 * 1024)
             self.after(0, lambda: self.info_labels["md5"].config(text=md5))
@@ -731,6 +760,65 @@ class RomViewerSSH(tk.Toplevel):
         self.clipboard_clear()
         self.clipboard_append(self.current_rom["path"])
         self.lbl_status.config(text="Путь скопирован")
+
+    def _delete_rom(self):
+        if not self.current_rom:
+            messagebox.showwarning("Внимание", "Выберите игру в списке.", parent=self)
+            return
+
+        rom = self.current_rom
+        msg = f"Удалить файл:\n{rom['path']}"
+        if rom.get("cover"):
+            msg += f"\nи обложку:\n{rom['cover']}"
+        msg += "\n\nЭто действие необратимо!"
+
+        if not messagebox.askyesno("Удаление", msg, icon="warning", parent=self):
+            return
+
+        self.btn_delete.config(state="disabled")
+        self.lbl_status.config(text=f"Удаление: {rom['filename']}...")
+        threading.Thread(
+            target=self._delete_rom_thread,
+            args=(rom,),
+            daemon=True
+        ).start()
+
+    def _delete_rom_thread(self, rom):
+        if not self._alive:
+            return
+        try:
+            sftp = self.ssh.client.open_sftp()
+
+            # Удаляем файл игры
+            try:
+                sftp.remove(rom["path"])
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось удалить ROM:\n{err}", parent=self))
+                return
+
+            # Удаляем обложку, если есть
+            cover_path = rom.get("cover")
+            if cover_path:
+                try:
+                    sftp.remove(cover_path)
+                except Exception:
+                    pass  # обложка могла уже не существовать
+
+            sftp.close()
+
+            self.after(0, lambda: self.lbl_status.config(
+                text=f"✅ Удалено: {rom['filename']}"))
+
+            # Пересканируем список
+            self.after(100, self._connect_and_scan)
+
+        except Exception as e:
+            err = str(e)
+            self.after(0, lambda: messagebox.showerror("Ошибка", f"Не удалось удалить:\n{err}", parent=self))
+            self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
+        finally:
+            self.after(0, lambda: self.btn_delete.config(state="normal"))
 
     def _download_rom(self):
         if not self.current_rom:
@@ -768,7 +856,7 @@ class RomViewerSSH(tk.Toplevel):
         cover_path = rom.get("cover")
 
         if not cover_path:
-            messagebox.showinfo("Нет обложки", "У этой игры нет обложки на консоли.")
+            messagebox.showinfo("Нет обложки", "У этой игры нет обложки на консоли.", parent=self)
             return
 
         initial_name = os.path.basename(cover_path)
@@ -794,6 +882,8 @@ class RomViewerSSH(tk.Toplevel):
 
 
     def _download_cover_thread(self, remote_path, local_path):
+        if not self._alive:
+            return
         try:
             sftp = self.ssh.client.open_sftp()
 
@@ -819,7 +909,7 @@ class RomViewerSSH(tk.Toplevel):
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
-                "Ошибка", f"Не удалось скачать обложку:\n{err}"))
+                "Ошибка", f"Не удалось скачать обложку:\n{err}", parent=self))
             self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
         finally:
             self.after(0, lambda: self.progress.config(value=0))
@@ -828,7 +918,7 @@ class RomViewerSSH(tk.Toplevel):
 
     def _download_pack(self):
         if not self.current_rom:
-            messagebox.showwarning("Внимание", "Выберите игру в списке.")
+            messagebox.showwarning("Внимание", "Выберите игру в списке.", parent=self)
             return
 
         rom = self.current_rom
@@ -857,6 +947,8 @@ class RomViewerSSH(tk.Toplevel):
 
 
     def _download_thread(self, rom, local_path):
+        if not self._alive:
+            return
         remote_path = rom["path"]
         try:
             sftp = self.ssh.client.open_sftp()
@@ -887,13 +979,15 @@ class RomViewerSSH(tk.Toplevel):
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
-                "Ошибка скачивания", f"Не удалось скачать файл:\n{err}"))
+                "Ошибка скачивания", f"Не удалось скачать файл:\n{err}", parent=self))
             self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
         finally:
             self.after(0, lambda: self.progress.config(value=0))
             self.after(0, lambda: self.btn_download.config(state="normal"))
 
     def _download_pack_thread(self, rom, target_folder):
+        if not self._alive:
+            return
         remote_rom_path = rom["path"]
         remote_cover_path = rom.get("cover")
 
@@ -949,7 +1043,7 @@ class RomViewerSSH(tk.Toplevel):
         except Exception as e:
             err = str(e)
             self.after(0, lambda: messagebox.showerror(
-                "Ошибка скачивания ПАКа", f"Не удалось скачать:\n{err}"))
+                "Ошибка скачивания ПАКа", f"Не удалось скачать:\n{err}", parent=self))
             self.after(0, lambda: self.lbl_status.config(text=f"❌ Ошибка: {err}"))
         finally:
             self.after(0, lambda: self.progress.config(value=0))
@@ -963,6 +1057,7 @@ class RomViewerSSH(tk.Toplevel):
             self.btn_pack.config(state="disabled")
             self.btn_cover.config(state="disabled")
             self.btn_dl_cover.config(state="disabled")
+            self.btn_delete.config(state="disabled")
             return
 
         is_ports = rom["platform_dir"].upper() == "PORTS"
@@ -970,6 +1065,7 @@ class RomViewerSSH(tk.Toplevel):
         # Для PORTS отключаем скачивание игры и пак
         self.btn_download.config(state="disabled" if is_ports else "normal")
         self.btn_pack.config(state="disabled" if is_ports else "normal")
+        self.btn_delete.config(state="disabled" if is_ports else "normal")
 
         # Обложки — всегда доступны
         self.btn_cover.config(state="normal")
@@ -980,7 +1076,9 @@ class RomViewerSSH(tk.Toplevel):
     # ── Вспомогательные ──────────────────────────────────────────
 
     def _set_status(self, text):
-        self.after(0, lambda: self.lbl_status.config(text=text))
+        if not self._alive:
+            return
+        self.after(0, lambda: self.lbl_status.config(text=text) if self._alive else None)
 
     @staticmethod
     def _fmt_size(n):
@@ -1007,6 +1105,7 @@ class RomViewerSSH(tk.Toplevel):
         }.get(key, key)
 
     def destroy(self):
+        self._alive = False
         if self.ssh:
             self.ssh.close()
         super().destroy()
