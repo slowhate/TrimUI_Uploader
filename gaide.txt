@@ -1,0 +1,14 @@
+Команды для запуска на линуксе
+python3 -m venv .venv
+source .venv/bin/activate
+pip install "paramiko>=5.0.0" "pillow>=12.3.0"
+python trimui_uploader.py
+
+run.sh:
+chmod +x run.sh
+./run.sh
+
+setup_and_run.sh:
+chmod +x setup_and_run.sh
+./setup_and_run.sh
+
