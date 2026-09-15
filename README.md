@@ -63,6 +63,12 @@
 
 Или:
 
+1. Прочти gaide.txt
+2. Запусти setup_and_run.sh
+3. Если уже запускал setup_and_run.sh, то запусти run.sh
+
+Или:
+
 1. Скачайте архив `TrimUI_Uploader_v1.0.41.zip` из раздела Releases.
 2. Распакуйте в любую удобную папку (не в `Program Files`).
 3. Запустите `TrimUI_Uploader.exe`.
