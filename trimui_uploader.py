@@ -106,8 +106,23 @@ class TrimUIUploader:
         style = ttk.Style()
         style.configure("TLabelframe.Label", font=("Segoe UI", 10, "bold"))
 
+        # --- СОЗДАЁМ ВКЛАДКИ ---
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True)
+
+        # Вкладка 1: Загрузка
+        self.upload_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.upload_frame, text="📤 Загрузка")
+
+        # Вкладка 2: Просмотр ROM (пока пустая, наполнится при переключении)
+        self.rom_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.rom_frame, text="📂 Просмотр ROM")
+
+        self.rom_viewer = None  # будет создан при первом переключении
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+
         # --- Блок подключения ---
-        conn_frame = ttk.LabelFrame(self.root, text="Подключение к консоли", padding=10)
+        conn_frame = ttk.LabelFrame(self.upload_frame, text="Подключение к консоли", padding=10)  # ← root → upload_frame
         conn_frame.pack(fill="x", padx=10, pady=(10, 5))
 
         ttk.Label(conn_frame, text="IP:").grid(row=0, column=0, sticky="w", pady=2)
@@ -125,14 +140,11 @@ class TrimUIUploader:
         self.save_pass_var = tk.BooleanVar(value=bool(self.config.get("password", "")))
         ttk.Checkbutton(conn_frame, text="Запомнить", variable=self.save_pass_var).grid(row=1, column=2, columnspan=2, sticky="w", padx=5)
 
-
-        # --- Блок назначения (Куда заливать) ---
-        dest_frame = ttk.LabelFrame(self.root, text="Куда заливать", padding=10)
+        # --- Блок назначения ---
+        dest_frame = ttk.LabelFrame(self.upload_frame, text="Куда заливать", padding=10)  # ← root → upload_frame
         dest_frame.pack(fill="x", padx=10, pady=5)
 
-        # Строка 0: Система, Путь, Кнопка поиска
         ttk.Label(dest_frame, text="Система:").grid(row=0, column=0, sticky="w", pady=2)
-        
         self.system_var = tk.StringVar(value=self.config.get("system", "PORTS"))
         self.system_combo = ttk.Combobox(dest_frame, textvariable=self.system_var, values=list(SYSTEM_PATHS.keys()), width=15, state="readonly")
         self.system_combo.grid(row=0, column=1, sticky="w", padx=5, pady=2)
@@ -146,46 +158,30 @@ class TrimUIUploader:
 
         ttk.Button(dest_frame, text="🔍 Найти путь", command=self.detect_path).grid(row=0, column=4, sticky="w", padx=5, pady=2)
 
-        # Строка 1: Подпапка (будет скрыта, если не PORTS)
         self.subfolder_label = ttk.Label(dest_frame, text="Подпапка:")
         self.subfolder_label.grid(row=1, column=0, sticky="w", pady=2)
-
         self.subfolder_var = tk.StringVar(value="")
         self.subfolder_entry = ttk.Combobox(dest_frame, textvariable=self.subfolder_var, width=43)
         self.subfolder_entry.grid(row=1, column=1, columnspan=3, sticky="we", padx=5, pady=2)
-
-        self.fetch_subfolders_btn = ttk.Button(dest_frame, text="📂",
-                                            command=self.fetch_port_subfolders)
+        self.fetch_subfolders_btn = ttk.Button(dest_frame, text="📂", command=self.fetch_port_subfolders)
         self.fetch_subfolders_btn.grid(row=1, column=4, sticky="w", padx=(0, 5), pady=2)
 
-        # Строка 2: Подсказка для подпапки
-        self.subfolder_hint = ttk.Label(
-            dest_frame,
-            text="(имя игры — для PortMaster: будет папка Data/ports/<имя>)",
-            foreground="#666"
-        )
+        self.subfolder_hint = ttk.Label(dest_frame, text="(имя игры — для PortMaster: будет папка Data/ports/<имя>)", foreground="#666")
         self.subfolder_hint.grid(row=2, column=0, columnspan=5, sticky="w")
 
-        # Строка 3: Поля для Custom (создаем и СРАЗУ скрываем через grid_remove)
         self.custom_name_label = ttk.Label(dest_frame, text="Имя системы:")
         self.custom_name_var = tk.StringVar(value="")
         self.custom_name_entry = ttk.Entry(dest_frame, textvariable=self.custom_name_var, width=18)
         self.save_system_btn = ttk.Button(dest_frame, text="💾 Сохранить", command=self.save_custom_system)
-
-        # ВАЖНО: Сразу размещаем в сетке и скрываем. 
-        # Это фиксирует строки/столбцы, чтобы интерфейс не "прыгал" позже.
         self.custom_name_label.grid(row=3, column=0, sticky="w", pady=2)
         self.custom_name_entry.grid(row=3, column=1, sticky="w", padx=5, pady=2)
         self.save_system_btn.grid(row=3, column=2, sticky="w", pady=2)
-        
-        # Скрываем сразу, логика показа будет в on_system_change
         self.custom_name_label.grid_remove()
         self.custom_name_entry.grid_remove()
         self.save_system_btn.grid_remove()
 
-
         # --- Блок файлов игры ---
-        game_frame = ttk.LabelFrame(self.root, text="Файлы игры", padding=10)
+        game_frame = ttk.LabelFrame(self.upload_frame, text="Файлы игры", padding=10)  # ← root → upload_frame
         game_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         btn_frame = ttk.Frame(game_frame)
@@ -194,15 +190,11 @@ class TrimUIUploader:
         ttk.Button(btn_frame, text="Добавить папку", command=self.add_game_folder).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="Очистить", command=self.clear_game_files).pack(side="left")
 
-        # Новые чекбоксы
         opts_frame = ttk.Frame(game_frame)
         opts_frame.pack(fill="x", pady=(0, 5))
-        ttk.Checkbutton(opts_frame, text="Сохранить структуру папок",
-                        variable=self.preserve_structure_var).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(opts_frame, text="Нижний регистр",
-                        variable=self.lowercase_var).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(opts_frame, text="Верхний регистр",
-                        variable=self.uppercase_var).pack(side="left")
+        ttk.Checkbutton(opts_frame, text="Сохранить структуру папок", variable=self.preserve_structure_var).pack(side="left", padx=(0, 10))
+        ttk.Checkbutton(opts_frame, text="Нижний регистр", variable=self.lowercase_var).pack(side="left", padx=(0, 10))
+        ttk.Checkbutton(opts_frame, text="Верхний регистр", variable=self.uppercase_var).pack(side="left")
 
         self.game_listbox = tk.Listbox(game_frame, height=5, selectmode=tk.EXTENDED)
         self.game_listbox.pack(side="left", fill="both", expand=True, pady=(0, 5))
@@ -211,7 +203,7 @@ class TrimUIUploader:
         self.game_listbox.configure(yscrollcommand=game_scroll.set)
 
         # --- Блок картинок ---
-        img_frame = ttk.LabelFrame(self.root, text="Картинки (обложки/скриншоты)", padding=10)
+        img_frame = ttk.LabelFrame(self.upload_frame, text="Картинки (обложки/скриншоты)", padding=10)  # ← root → upload_frame
         img_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
         img_btn_frame = ttk.Frame(img_frame)
@@ -226,37 +218,36 @@ class TrimUIUploader:
         self.img_listbox.configure(yscrollcommand=img_scroll.set)
 
         # --- Панель действий ---
-        action_frame = ttk.Frame(self.root)
+        action_frame = ttk.Frame(self.upload_frame)                     # ← root → upload_frame
         action_frame.pack(fill="x", padx=10, pady=(5, 5))
-        
+
         self.transfer_btn = ttk.Button(action_frame, text="Залить на консоль", command=self.start_transfer)
         self.transfer_btn.pack(side="left", padx=(0, 10))
-        
+
         ttk.Button(action_frame, text="Проверить соединение", command=self.test_connection).pack(side="left", padx=(0, 10))
-        ttk.Button(action_frame, text="📂 Посмотреть ROM-ы", command=self.on_view_roms).pack(side="left", padx=(0, 10))
-        
+        # ← КНОПКУ "Посмотреть ROM-ы" УБРАЛИ
+
         self.progress = ttk.Progressbar(action_frame, mode="determinate")
         self.progress.pack(side="right", fill="x", expand=True, padx=(10, 0))
 
-        self.status_label = ttk.Label(self.root, text="Готово к работе", font=("Segoe UI", 9))
+        self.status_label = ttk.Label(self.upload_frame, text="Готово к работе", font=("Segoe UI", 9))  # ← root → upload_frame
         self.status_label.pack(fill="x", padx=10, pady=(0, 5))
 
         # --- Лог ---
-        log_frame = ttk.LabelFrame(self.root, text="Лог", padding=5)
+        log_frame = ttk.LabelFrame(self.upload_frame, text="Лог", padding=5)  # ← root → upload_frame
         log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
-        
+
         self.log_text = tk.Text(log_frame, height=6, state="disabled", font=("Consolas", 9))
         self.log_text.pack(side="left", fill="both", expand=True)
-        
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
         log_scroll.pack(side="right", fill="y")
         self.log_text.configure(yscrollcommand=log_scroll.set)
-        
+
         self.copy_btn = ttk.Button(action_frame, text="📋 Скопировать логи", command=self.copy_logs)
         self.copy_btn.pack(side="right")
 
-        # Инициализация видимости виджетов при старте
         self.on_system_change()
+
 
 
     def on_system_change(self, event=None):
@@ -294,31 +285,43 @@ class TrimUIUploader:
         finally:
             self._updating_system = False
 
-    # Кнопка "Посмотреть ROM-ы":
-    def on_view_roms(self):
+
+# Страница ромов
+    def on_tab_changed(self, event):
+        """Срабатывает при переключении вкладки."""
+        current = self.notebook.select()
+        if current and self.notebook.tab(current, "text") == "📂 Просмотр ROM":
+            self.init_rom_viewer()
+
+    def init_rom_viewer(self):
+        """Создаёт ROM-вьюер при первом переходе на вкладку."""
         if not HAS_PARAMIKO:
             messagebox.showerror("Ошибка", "paramiko не установлен.\nВыполните: pip install paramiko")
+            self.notebook.select(0)  # возвращаем на вкладку загрузки
             return
         if not self.ip_var.get():
             messagebox.showwarning("Внимание", "Укажите IP консоли.")
+            self.notebook.select(0)
             return
 
         roms_base = self.get_roms_base()
-
-        # Вычисляем путь к обложкам: /mnt/sdcard/mmcblk1p1/Roms → /mnt/sdcard/mmcblk1p1/Imgs
         if roms_base.endswith("/Roms"):
             imgs_base = roms_base[:-5] + "/Imgs"
         else:
-            imgs_base = None  # пусть просмотрщик вычислит сам
+            imgs_base = None
 
-        RomViewerSSH(
-            self.root,
-            host=self.ip_var.get(),
-            username=self.user_var.get(),
-            password=self.pass_var.get(),
-            rom_path=roms_base,
-            imgs_path=imgs_base,
-        )
+        if self.rom_viewer is None:
+            self.rom_viewer = RomViewerSSH(
+                parent=self.rom_frame,
+                root_window=self.root,
+                host=self.ip_var.get(),
+                username=self.user_var.get(),
+                password=self.pass_var.get(),
+                rom_path=roms_base,
+                imgs_path=imgs_base,
+            )
+            self.rom_viewer.pack(fill="both", expand=True)
+
 
     def get_roms_base(self):
         """Извлекает базовый путь к папке Roms из текущих настроек."""
