@@ -118,7 +118,12 @@ class TrimUIUploader:
         self.rom_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.rom_frame, text="📂 Просмотр ROM")
 
+        # Вкладка 3: Файловый менеджер
+        self.file_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.file_frame, text="📁 Файлы")
+
         self.rom_viewer = None  # будет создан при первом переключении
+        self.file_manager = None  # будет создан при первом переключении
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
         # --- Блок подключения ---
@@ -218,14 +223,13 @@ class TrimUIUploader:
         self.img_listbox.configure(yscrollcommand=img_scroll.set)
 
         # --- Панель действий ---
-        action_frame = ttk.Frame(self.upload_frame)                     # ← root → upload_frame
+        action_frame = ttk.Frame(self.upload_frame)
         action_frame.pack(fill="x", padx=10, pady=(5, 5))
 
         self.transfer_btn = ttk.Button(action_frame, text="Залить на консоль", command=self.start_transfer)
         self.transfer_btn.pack(side="left", padx=(0, 10))
 
         ttk.Button(action_frame, text="Проверить соединение", command=self.test_connection).pack(side="left", padx=(0, 10))
-        # ← КНОПКУ "Посмотреть ROM-ы" УБРАЛИ
 
         self.progress = ttk.Progressbar(action_frame, mode="determinate")
         self.progress.pack(side="right", fill="x", expand=True, padx=(10, 0))
@@ -290,8 +294,16 @@ class TrimUIUploader:
     def on_tab_changed(self, event):
         """Срабатывает при переключении вкладки."""
         current = self.notebook.select()
-        if current and self.notebook.tab(current, "text") == "📂 Просмотр ROM":
+        if not current:
+            return
+
+        # Получаем текст активной вкладки
+        tab_text = self.notebook.tab(current, "text")
+
+        if tab_text == "📂 Просмотр ROM":
             self.init_rom_viewer()
+        elif tab_text == "📁 Файлы":
+            self.init_file_manager()
 
     def init_rom_viewer(self):
         """Создаёт ROM-вьюер при первом переходе на вкладку."""
@@ -322,6 +334,40 @@ class TrimUIUploader:
             )
             self.rom_viewer.pack(fill="both", expand=True)
 
+    def init_file_manager(self):
+        if not HAS_PARAMIKO:
+            messagebox.showerror("Ошибка", "paramiko не установлен.\nВыполните: pip install paramiko")
+            self.notebook.select(0)
+            return
+        if not self.ip_var.get():
+            messagebox.showwarning("Внимание", "Укажите IP консоли.")
+            self.notebook.select(0)
+            return
+
+        if self.file_manager is None:
+            # Вычисляем безопасный корень так же, как для ROM-вьюера
+            roms_base = self.get_roms_base()
+            if roms_base.endswith("/Roms"):
+                safe_root = roms_base[:-5]
+            else:
+                safe_root = roms_base
+
+            try:
+                from file_manager_ssh import FileManagerSSH
+                self.file_manager = FileManagerSSH(
+                    parent=self.file_frame,
+                    root_window=self.root,
+                    host=self.ip_var.get(),
+                    username=self.user_var.get(),
+                    password=self.pass_var.get(),
+                    start_path=safe_root,
+                    safe_mode=True,
+                    safe_root=safe_root,
+                )
+                self.file_manager.pack(fill="both", expand=True)
+            except Exception as e:
+                messagebox.showerror("Ошибка", f"Не удалось открыть файловый менеджер:\n{e}")
+                self.notebook.select(0)
 
     def get_roms_base(self):
         """Извлекает базовый путь к папке Roms из текущих настроек."""
