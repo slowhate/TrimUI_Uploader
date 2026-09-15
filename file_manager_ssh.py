@@ -119,6 +119,16 @@ class FileManagerSSH(ttk.Frame):
                                      command=self._delete_file, state="disabled")
         self.btn_delete.pack(side="left", padx=(0, 4))
 
+        # Кнопка «Вырезать»
+        self.btn_cut = ttk.Button(actions, text="✂️ Вырезать",
+                                  command=self._cut_file, state="disabled")
+        self.btn_cut.pack(side="left", padx=(0, 4))
+
+        # Кнопка «Вставить» (изначально отключена)
+        self.btn_paste = ttk.Button(actions, text="📋 Вставить",
+                                    command=self._paste_file, state="disabled")
+        self.btn_paste.pack(side="left", padx=(0, 4))
+
         self.btn_mkdir = ttk.Button(actions, text="📁 Создать папку",
                                     command=self._mkdir)
         self.btn_mkdir.pack(side="left", padx=(0, 4))
@@ -292,7 +302,6 @@ class FileManagerSSH(ttk.Frame):
         """Считает размеры папок с кэшированием, в отдельном SFTP-подключении."""
         aux_ssh = None
         aux_sftp = None
-        need_connect = False
 
         # Сначала проверяем кэш
         uncached = []
@@ -380,11 +389,13 @@ class FileManagerSSH(ttk.Frame):
         sel = self.tree.selection()
         if not sel:
             self._update_buttons(None)
+            self.btn_cut.config(state="disabled")
             return
         name = sel[0]
         item = self.tree.item(name)
         is_dir = item["values"][1] == "Папка"
         self._update_buttons({"name": name, "is_dir": is_dir})
+        self.btn_cut.config(state="normal")
 
     def _update_buttons(self, selection):
         if selection is None:
@@ -660,6 +671,103 @@ class FileManagerSSH(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось создать папку:\n{e}",
                                 parent=self.root_window)
+
+    # ── Cut/Paste логика ─────────────────────────────────────────
+
+    def _cut_file(self):
+        """Вырезает выбранный файл/папку (запоминает путь)."""
+        remote_path = self._get_selected_path()
+        if not remote_path:
+            return
+        if not self._is_path_allowed(remote_path):
+            self._set_status("🔒 Доступ запрещён для вырезания")
+            return
+
+        name = posixpath.basename(remote_path)
+        item = self.tree.item(name)
+        is_dir = item["values"][1] == "Папка"
+
+        msg = f"Вырезать «{name}»?\nЭто переместит объект в другую папку."
+        if not messagebox.askyesno("Вырезать", msg, icon="warning", parent=self.root_window):
+            return
+
+        # Сохраняем в clipboard: путь и тип
+        self._clipboard = {"path": remote_path, "is_dir": is_dir}
+        self.btn_paste.config(state="normal")
+        self._set_status(f"✂️ Вырезано: {name}")
+        # Визуально можно подсветить выделение, но пока просто сообщение
+
+    def _paste_file(self):
+        """Вставляет (перемещает) вырезанный объект в текущую папку."""
+        if self._clipboard is None:
+            return
+
+        src_path = self._clipboard["path"]
+        is_dir = self._clipboard["is_dir"]
+        src_name = posixpath.basename(src_path)
+
+        dst_path = posixpath.join(self.current_path, src_name)
+
+        # Проверка безопасности и для источника, и для назначения
+        if not self._is_path_allowed(src_path):
+            self._set_status("🔒 Источник вне безопасной зоны")
+            messagebox.showerror("Ошибка", "Нельзя вырезать из запрещённой зоны.", parent=self.root_window)
+            self._clipboard = None
+            self.btn_paste.config(state="disabled")
+            return
+
+        if not self._is_path_allowed(dst_path):
+            self._set_status("🔒 Нельзя вставить в запрещённую зону")
+            messagebox.showerror("Ошибка", "Целевая папка вне безопасной зоны.", parent=self.root_window)
+            return
+
+        # Проверяем, не занято ли имя
+        try:
+            self.sftp.stat(dst_path)
+            self._set_status(f"❌ Имя «{src_name}» уже занято")
+            messagebox.showerror(
+                "Ошибка", f"В текущей папке уже есть «{src_name}». Переименуйте или удалите его.",
+                parent=self.root_window
+            )
+            return
+        except IOError:
+            pass  # имени нет — ок
+
+        self.btn_paste.config(state="disabled")
+        self.btn_cut.config(state="disabled")
+        self._set_status(f"📋 Перемещаем: {src_name}…")
+
+        threading.Thread(target=self._move_thread,
+                         args=(src_path, dst_path, src_name), daemon=True).start()
+
+    def _move_thread(self, src_path, dst_path, name):
+        if not self._alive:
+            return
+        try:
+            # Используем mv через SSH — надёжно на TrimUI
+            stdin, stdout, stderr = self.ssh.exec_command(
+                f'mv "{src_path}" "{dst_path}"', timeout=15)
+            err = stderr.read().decode("utf-8", errors="replace").strip()
+            if err:
+                raise Exception(err)
+
+            # Очищаем кэш для обеих папок
+            self._dir_size_cache.pop(src_path, None)
+            self._dir_size_cache.pop(self.current_path, None)
+
+            self.after(0, lambda: self._set_status(f"✅ Перемещено: {name}"))
+            self.after(0, self._list_dir)  # обновить текущую
+
+            # Сбрасываем clipboard
+            self._clipboard = None
+            self.after(0, lambda: self.btn_paste.config(state="disabled"))
+        except Exception as e:
+            err = str(e)
+            self.after(0, lambda: messagebox.showerror(
+                "Ошибка перемещения", f"Не удалось переместить:\n{err}", parent=self.root_window))
+            self.after(0, lambda: self._set_status(f"❌ Ошибка: {err}"))
+        finally:
+            self.after(0, lambda: self.btn_paste.config(state="disabled"))
 
     # ── Вспомогательные ───────────────────────────────────────────
 
